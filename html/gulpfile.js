@@ -1,107 +1,138 @@
-var gulp = require('gulp');
-var less = require('gulp-less');
-var sass = require('gulp-sass');
-var browserSync = require('browser-sync').create();
-var header = require('gulp-header');
-var cleanCSS = require('gulp-clean-css');
-var rename = require("gulp-rename");
-var uglify = require('gulp-uglify');
-var pkg = require('./package.json');
+"use strict";
+
+// Load plugins
+const autoprefixer = require("gulp-autoprefixer");
+const browsersync = require("browser-sync").create();
+const cleanCSS = require("gulp-clean-css");
+const del = require("del");
+const gulp = require("gulp");
+const header = require("gulp-header");
+const merge = require("merge-stream");
+const plumber = require("gulp-plumber");
+const rename = require("gulp-rename");
+const sass = require("gulp-sass");
+const uglify = require("gulp-uglify");
+
+// Load package.json for banner
+const pkg = require('./package.json');
 
 // Set the banner content
-var banner = ['/*!\n',
-    ' * Start Bootstrap - <%= pkg.title %> v<%= pkg.version %> (<%= pkg.homepage %>)\n',
-    ' * Copyright 2013-' + (new Date()).getFullYear(), ' <%= pkg.author %>\n',
-    ' * Licensed under <%= pkg.license.type %> (<%= pkg.license.url %>)\n',
-    ' */\n',
-    ''
+const banner = ['/*!\n',
+  ' * Start Bootstrap - <%= pkg.title %> v<%= pkg.version %> (<%= pkg.homepage %>)\n',
+  ' * Copyright 2013-' + (new Date()).getFullYear(), ' <%= pkg.author %>\n',
+  ' * Licensed under <%= pkg.license %> (https://github.com/BlackrockDigital/<%= pkg.name %>/blob/master/LICENSE)\n',
+  ' */\n',
+  '\n'
 ].join('');
 
-// Compiles SCSS files from /scss into /css
-gulp.task('sass', function() {
-    return gulp.src('scss/agency.scss')
-        .pipe(sass())
-        .pipe(header(banner, { pkg: pkg }))
-        .pipe(gulp.dest('css'))
-        .pipe(browserSync.reload({
-            stream: true
-        }))
-});
+// BrowserSync
+function browserSync(done) {
+  browsersync.init({
+    server: {
+      baseDir: "./"
+    },
+    port: 3000
+  });
+  done();
+}
 
-// Minify compiled CSS
-gulp.task('minify-css', ['sass'], function() {
-    return gulp.src('css/agency.css')
-        .pipe(cleanCSS({ compatibility: 'ie8' }))
-        .pipe(rename({ suffix: '.min' }))
-        .pipe(gulp.dest('css'))
-        .pipe(browserSync.reload({
-            stream: true
-        }))
-});
+// BrowserSync reload
+function browserSyncReload(done) {
+  browsersync.reload();
+  done();
+}
 
-// Minify JS
-gulp.task('minify-js', function() {
-    return gulp.src('js/agency.js')
-        .pipe(uglify())
-        .pipe(header(banner, { pkg: pkg }))
-        .pipe(rename({ suffix: '.min' }))
-        .pipe(gulp.dest('js'))
-        .pipe(browserSync.reload({
-            stream: true
-        }))
-});
+// Clean vendor
+function clean() {
+  return del(["./vendor/"]);
+}
 
-// Copy vendor libraries from /node_modules into /vendor
-gulp.task('copy', function() {
-    gulp.src(['node_modules/bootstrap/dist/**/*', '!**/npm.js', '!**/bootstrap-theme.*', '!**/*.map'])
-        .pipe(gulp.dest('lib/bootstrap'))
+// Bring third party dependencies from node_modules into vendor directory
+function modules() {
+  // Bootstrap
+  var bootstrap = gulp.src('./node_modules/bootstrap/dist/**/*')
+    .pipe(gulp.dest('./vendor/bootstrap'));
+  // Font Awesome
+  var fontAwesome = gulp.src('./node_modules/@fortawesome/**/*')
+    .pipe(gulp.dest('./vendor'));
+  // jQuery Easing
+  var jqueryEasing = gulp.src('./node_modules/jquery.easing/*.js')
+    .pipe(gulp.dest('./vendor/jquery-easing'));
+  // jQuery
+  var jquery = gulp.src([
+      './node_modules/jquery/dist/*',
+      '!./node_modules/jquery/dist/core.js'
+    ])
+    .pipe(gulp.dest('./vendor/jquery'));
+  // Simple Line Icons
+  var simpleLineIconsFonts = gulp.src('./node_modules/simple-line-icons/fonts/**')
+    .pipe(gulp.dest('./vendor/simple-line-icons/fonts'));
+  var simpleLineIconsCSS = gulp.src('./node_modules/simple-line-icons/css/**')
+    .pipe(gulp.dest('./vendor/simple-line-icons/css'));
+  return merge(bootstrap, fontAwesome, jquery, jqueryEasing, simpleLineIconsFonts, simpleLineIconsCSS);
+}
 
-    gulp.src(['node_modules/jquery/dist/jquery.js', 'node_modules/jquery/dist/jquery.min.js'])
-        .pipe(gulp.dest('lib/jquery'))
+// CSS task
+function css() {
+  return gulp
+    .src("./scss/**/*.scss")
+    .pipe(plumber())
+    .pipe(sass({
+      outputStyle: "expanded",
+      includePaths: "./node_modules",
+    }))
+    .on("error", sass.logError)
+    .pipe(autoprefixer({
+      browsers: ['last 2 versions'],
+      cascade: false
+    }))
+    .pipe(header(banner, {
+      pkg: pkg
+    }))
+    .pipe(gulp.dest("./css"))
+    .pipe(rename({
+      suffix: ".min"
+    }))
+    .pipe(cleanCSS())
+    .pipe(gulp.dest("./css"))
+    .pipe(browsersync.stream());
+}
 
-    gulp.src(['node_modules/tether/dist/js/*.js'])
-        .pipe(gulp.dest('lib/tether'))
+// JS task
+function js() {
+  return gulp
+    .src([
+      './js/*.js',
+      '!./js/*.min.js'
+    ])
+    .pipe(uglify())
+    .pipe(header(banner, {
+      pkg: pkg
+    }))
+    .pipe(rename({
+      suffix: '.min'
+    }))
+    .pipe(gulp.dest('./js'))
+    .pipe(browsersync.stream());
+}
 
-    gulp.src([
-            'node_modules/font-awesome/**',
-            '!node_modules/font-awesome/**/*.map',
-            '!node_modules/font-awesome/.npmignore',
-            '!node_modules/font-awesome/*.txt',
-            '!node_modules/font-awesome/*.md',
-            '!node_modules/font-awesome/*.json'
-        ])
-        .pipe(gulp.dest('lib/font-awesome'))
-})
+// Watch files
+function watchFiles() {
+  gulp.watch("./scss/**/*", css);
+  gulp.watch("./js/**/*", js);
+  gulp.watch("./**/*.html", browserSyncReload);
+}
 
-// Run everything
-gulp.task('default', ['sass', 'minify-css', 'minify-js', 'copy']);
+// Define complex tasks
+const vendor = gulp.series(clean, modules);
+const build = gulp.series(vendor, gulp.parallel(css, js));
+const watch = gulp.series(build, gulp.parallel(watchFiles, browserSync));
 
-// Configure the browserSync task
-gulp.task('browserSync', function() {
-    browserSync.init({
-        server: {
-            baseDir: ''
-        },
-    })
-})
-
-// Dev task with browserSync
-gulp.task('dev', ['browserSync', 'sass', 'minify-css', 'minify-js'], function() {
-    gulp.watch('scss/*.scss', ['sass']);
-    gulp.watch('css/*.css', ['minify-css']);
-    gulp.watch('js/*.js', ['minify-js']);
-    // Reloads the browser whenever HTML or JS files change
-    gulp.watch('*.html', browserSync.reload);
-    gulp.watch('js/**/*.js', browserSync.reload);
-});
-
-// OPTIONAL: LESS task if you prefer to use LESS over SASS
-gulp.task('less', function() {
-    return gulp.src('less/agency.less')
-        .pipe(less())
-        .pipe(header(banner, { pkg: pkg }))
-        .pipe(gulp.dest('css'))
-        .pipe(browserSync.reload({
-            stream: true
-        }))
-});
+// Export tasks
+exports.css = css;
+exports.js = js;
+exports.clean = clean;
+exports.vendor = vendor;
+exports.build = build;
+exports.watch = watch;
+exports.default = build;
